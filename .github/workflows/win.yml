@@ -1,0 +1,54 @@
+name: Build Nunchaku 1.1.0 (Fixed)
+on: workflow_dispatch
+
+jobs:
+  build_wheels:
+    name: Build for Windows
+    runs-on: windows-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: v1.1.0            # 锁定 1.1.0 版本
+          submodules: recursive  # 必须递归拉取子模块(如 cutlass)，否则必报错
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # --- 修复点：使用 Jimver 替代失效的 jimmy-p ---
+      - name: Install CUDA 12.4
+        uses: Jimver/cuda-toolkit@v0.2.21
+        with:
+          cuda: '12.4.1'
+          method: 'network'
+          sub-packages: '["nvcc", "cudart", "visual_studio_integration"]' 
+          # 只安装必要组件，加快速度
+
+      - name: Setup MSVC (Visual Studio)
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install ninja wheel setuptools
+          # 安装 Torch 2.7 Nightly (基于 CUDA 12.4)
+          pip install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu124
+
+      - name: Build Wheel
+        shell: cmd 
+        run: |
+          :: 强制指定 CUDA 路径和架构
+          set CUDA_HOME=%CUDA_PATH%
+          set FORCE_CUDA=1
+          :: 涵盖 30系(8.6), 40系(8.9), H100(9.0)
+          set TORCH_CUDA_ARCH_LIST=8.0;8.6;8.9;9.0
+          
+          python setup.py bdist_wheel
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: nunchaku-1.1.0-win-torch2.7
+          path: dist/*.whl
